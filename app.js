@@ -5,6 +5,7 @@ const EQUIPMENT = [
   {name:"SMART CARD", serial:false}
 ];
 const $ = id => document.getElementById(id);
+const qs = selector => document.querySelector(selector);
 let profile = JSON.parse(localStorage.getItem("cc_profile") || "null");
 let records = JSON.parse(localStorage.getItem("cc_records") || "[]");
 let currentReceipt = null;
@@ -21,8 +22,8 @@ function renderEquipment(){
   $("equipmentList").innerHTML=EQUIPMENT.map((e,i)=>`<div class="equipment-block">
     <div class="equipment-row"><label class="equip-name"><input type="checkbox" data-check="${i}"> ${e.name}</label><label class="qty"><input type="number" min="1" max="30" value="1" data-qty="${i}" aria-label="Quantidade ${e.name}" disabled></label></div>
     <div id="units-${i}"></div></div>`).join("");
-  $("equipmentList").querySelectorAll("[data-check]").forEach(ch=>ch.addEventListener("change",()=>{const i=+ch.dataset.check;const q=$(`[data-qty="${i}"]`);q.disabled=!ch.checked;if(ch.checked){renderUnits(i,Math.max(1,+q.value||1));}else{$(`units-${i}`).innerHTML="";}}));
-  $("equipmentList").querySelectorAll("[data-qty]").forEach(q=>q.addEventListener("change",()=>{const i=+q.dataset.qty;let n=Math.max(1,Math.min(30,+q.value||1));q.value=n;if($(`[data-check="${i}"]`).checked)renderUnits(i,n);}));
+  $("equipmentList").querySelectorAll("[data-check]").forEach(ch=>ch.addEventListener("change",()=>{const i=+ch.dataset.check;const q=qs(`[data-qty="${i}"]`);q.disabled=!ch.checked;if(ch.checked){renderUnits(i,Math.max(1,+q.value||1));}else{$(`units-${i}`).innerHTML="";}}));
+  $("equipmentList").querySelectorAll("[data-qty]").forEach(q=>q.addEventListener("change",()=>{const i=+q.dataset.qty;let n=Math.max(1,Math.min(30,+q.value||1));q.value=n;if(qs(`[data-check="${i}"]`).checked)renderUnits(i,n);}));
 }
 function renderUnits(i,n){
  const e=EQUIPMENT[i], box=$(`units-${i}`);if(!e.serial){box.innerHTML=`<p class="muted">Quantidade selecionada: ${n}. Não é exigido número de série nem foto para este equipamento.</p>`;return;}
@@ -32,7 +33,7 @@ function renderUnits(i,n){
 }
 function compressImage(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>{const img=new Image();img.onload=()=>{const scale=Math.min(1,1200/Math.max(img.width,img.height));const c=document.createElement("canvas");c.width=Math.round(img.width*scale);c.height=Math.round(img.height*scale);c.getContext("2d").drawImage(img,0,0,c.width,c.height);resolve(c.toDataURL("image/jpeg",.72));};img.onerror=reject;img.src=reader.result;};reader.onerror=reject;reader.readAsDataURL(file);});}
 function collectItems(){
- const out=[];EQUIPMENT.forEach((e,i)=>{if(!$(`[data-check="${i}"]`).checked)return;const n=Math.max(1,+$(`[data-qty="${i}"]`).value||1);for(let u=0;u<n;u++){let serial="",photo="";if(e.serial){const card=$(`units-${i}`).querySelectorAll(".unit-card")[u];serial=card.querySelector(".serial").value.trim();photo=card.querySelector(".photo-data").value;if(!serial||!photo)throw new Error(`Preencha o número de série e anexe a foto de ${e.name}, unidade ${u+1}.`);}out.push({equipment:e.name,serial,photo});}});return out;
+ const out=[];EQUIPMENT.forEach((e,i)=>{if(!qs(`[data-check="${i}"]`).checked)return;const n=Math.max(1,+qs(`[data-qty="${i}"]`).value||1);for(let u=0;u<n;u++){let serial="",photo="";if(e.serial){const card=$(`units-${i}`).querySelectorAll(".unit-card")[u];serial=card.querySelector(".serial").value.trim();photo=card.querySelector(".photo-data").value;if(!serial||!photo)throw new Error(`Preencha o número de série e anexe a foto de ${e.name}, unidade ${u+1}.`);}out.push({equipment:e.name,serial,photo});}});return out;
 }
 $("collectionForm").onsubmit=e=>{e.preventDefault();if(!profile){openProfile();alert("Configure a empresa e o técnico antes de gerar o comprovante.");return;}let items;try{items=collectItems();}catch(err){alert(err.message);return;}if(!items.length){alert("Selecione pelo menos um equipamento.");return;}
  const record={id:"COL-"+crypto.randomUUID(),date:new Date().toLocaleString("pt-BR"),customer:$("customer").value.trim(),base:$("base").value.trim(),contract:$("contract").value.trim(),...profile,items,notes:$("notes").value.trim()};

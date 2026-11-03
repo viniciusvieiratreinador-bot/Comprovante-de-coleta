@@ -1,104 +1,55 @@
-const $ = (id) => document.getElementById(id);
-const DB_NAME = "coleta-offline-db";
-const DB_VERSION = 1;
-let db;
-let currentTechnician = null;
-let activeRecord = null;
+const EQUIPMENT = [
+  {name:"EMTA", serial:true}, {name:"DECODER DIGITAL", serial:true},
+  {name:"WIFI-MESH", serial:true}, {name:"CONTROLE REMOTO", serial:false},
+  {name:"FONTE", serial:false}, {name:"CÂMERA SMART HOME", serial:true},
+  {name:"SMART CARD", serial:false}
+];
+const $ = id => document.getElementById(id);
+let profile = JSON.parse(localStorage.getItem("cc_profile") || "null");
+let records = JSON.parse(localStorage.getItem("cc_records") || "[]");
+let currentReceipt = null;
 
-function openDB(){
-  return new Promise((resolve,reject)=>{
-    const req=indexedDB.open(DB_NAME,DB_VERSION);
-    req.onupgradeneeded=()=>{const d=req.result;if(!d.objectStoreNames.contains("records"))d.createObjectStore("records",{keyPath:"id"});if(!d.objectStoreNames.contains("settings"))d.createObjectStore("settings",{keyPath:"key"});};
-    req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
-  });
+function escapeHtml(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function renderProfile(){
+  $("profileSummary").textContent = profile ? `${profile.company} · ${profile.technician} · Login: ${profile.login}` : "Perfil não configurado. Configure a empresa e o técnico antes de registrar.";
 }
-function store(name,mode="readonly"){return db.transaction(name,mode).objectStore(name);}
-function getItem(name,key){return new Promise((res,rej)=>{const r=store(name).get(key);r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});}
-function putItem(name,value){return new Promise((res,rej)=>{const r=store(name,"readwrite").put(value);r.onsuccess=()=>res();r.onerror=()=>rej(r.error);});}
-function getAllRecords(){return new Promise((res,rej)=>{const r=store("records").getAll();r.onsuccess=()=>res(r.result.sort((a,b)=>b.createdAt-a.createdAt));r.onerror=()=>rej(r.error);});}
-function uuid(){return "COL-"+crypto.randomUUID().toUpperCase();}
-function fmtDate(iso){return new Date(iso).toLocaleString("pt-BR");}
-function escapeHTML(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-async function pinHash(pin){const data=new TextEncoder().encode(pin);const digest=await crypto.subtle.digest("SHA-256",data);return [...new Uint8Array(digest)].map(x=>x.toString(16).padStart(2,"0")).join("");}
-function toast(msg){$("toast").textContent=msg;$("toast").classList.add("show");setTimeout(()=>$("toast").classList.remove("show"),2600);}
-
-async function ensureQRCode(){
-  if(window.QRCode) return true;
-  return new Promise(resolve=>{
-    const script=document.createElement("script");
-    script.src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
-    script.onload=()=>resolve(!!window.QRCode);
-    script.onerror=()=>resolve(false);
-    document.head.appendChild(script);
-  });
+function openProfile(){if(profile){$("company").value=profile.company;$("technician").value=profile.technician;$("login").value=profile.login;} $("profileDialog").showModal();}
+$("profileBtn").onclick=openProfile;$("editProfile").onclick=openProfile;
+$("cancelProfile").onclick=()=>$("profileDialog").close();
+$("profileForm").onsubmit=e=>{e.preventDefault();profile={company:$("company").value.trim(),technician:$("technician").value.trim(),login:$("login").value.trim()};localStorage.setItem("cc_profile",JSON.stringify(profile));renderProfile();$("profileDialog").close();};
+function renderEquipment(){
+  $("equipmentList").innerHTML=EQUIPMENT.map((e,i)=>`<div class="equipment-block">
+    <div class="equipment-row"><label class="equip-name"><input type="checkbox" data-check="${i}"> ${e.name}</label><label class="qty"><input type="number" min="1" max="30" value="1" data-qty="${i}" aria-label="Quantidade ${e.name}" disabled></label></div>
+    <div id="units-${i}"></div></div>`).join("");
+  $("equipmentList").querySelectorAll("[data-check]").forEach(ch=>ch.addEventListener("change",()=>{const i=+ch.dataset.check;const q=$(`[data-qty="${i}"]`);q.disabled=!ch.checked;if(ch.checked){renderUnits(i,Math.max(1,+q.value||1));}else{$(`units-${i}`).innerHTML="";}}));
+  $("equipmentList").querySelectorAll("[data-qty]").forEach(q=>q.addEventListener("change",()=>{const i=+q.dataset.qty;let n=Math.max(1,Math.min(30,+q.value||1));q.value=n;if($(`[data-check="${i}"]`).checked)renderUnits(i,n);}));
 }
-async function init(){
-  await ensureQRCode();
-  db=await openDB();
-  const session=await getItem("settings","technician");
-  if(session){$("techName").value=session.name;$("loginView").classList.remove("hidden");}
-  $("loginForm").addEventListener("submit",login);
-  $("collectionForm").addEventListener("submit",saveCollection);
-  $("logoutBtn").addEventListener("click",logout);
-  $("closeModal").addEventListener("click",closeReceipt);
-  $("printBtn").addEventListener("click",()=>window.print());
-  $("shareBtn").addEventListener("click",shareReceipt);
-  $("exportBtn").addEventListener("click",exportBackup);
-  if("serviceWorker" in navigator && location.protocol.startsWith("http")){navigator.serviceWorker.register("./sw.js").catch(()=>{});}
+function renderUnits(i,n){
+ const e=EQUIPMENT[i], box=$(`units-${i}`);if(!e.serial){box.innerHTML=`<p class="muted">Quantidade selecionada: ${n}. Não é exigido número de série nem foto para este equipamento.</p>`;return;}
+ const old=[...box.querySelectorAll(".unit-card")].map(card=>({serial:card.querySelector(".serial")?.value||"",photo:card.querySelector(".photo-data")?.value||""}));
+ box.innerHTML=Array.from({length:n},(_,u)=>`<div class="unit-card"><div class="unit-title">${e.name} — Unidade ${u+1}</div><label>Número de série *<input class="serial" required placeholder="Número de série" value="${escapeHtml(old[u]?.serial||"")}"></label><label>Foto da etiqueta *<input class="photo-input" type="file" accept="image/*" capture="environment"></label><input class="photo-data" type="hidden" value="${old[u]?.photo||""}"><div class="photo-status muted">${old[u]?.photo?"Foto anexada": "Nenhuma foto anexada"}</div><img class="photo-preview" ${old[u]?.photo?`src="${old[u].photo}"`:"hidden"}></div>`).join("");
+ box.querySelectorAll(".unit-card").forEach(card=>{const file=card.querySelector('input[type=file]');file.addEventListener("change",async()=>{const f=file.files[0];if(!f)return;if(f.size>5*1024*1024){alert("Escolha uma foto de até 5 MB.");file.value="";return;}const data=await compressImage(f);card.querySelector(".photo-data").value=data;card.querySelector(".photo-status").textContent="Foto anexada";const img=card.querySelector("img");img.src=data;img.hidden=false;});});
 }
-async function login(e){
-  e.preventDefault();$("loginError").textContent="";
-  const name=$("techName").value.trim(),pin=$("techPin").value.trim();
-  if(name.length<3||!/^\d{4,8}$/.test(pin)){$("loginError").textContent="Informe nome e PIN de 4 a 8 dígitos.";return;}
-  const saved=await getItem("settings","technician"),hash=await pinHash(pin);
-  if(saved && saved.pinHash!==hash){$("loginError").textContent="PIN incorreto neste aparelho.";return;}
-  currentTechnician={name:saved?.name||name,pinHash:hash};
-  if(!saved)await putItem("settings",{key:"technician",name,pinHash:hash});
-  $("loginView").classList.add("hidden");$("appView").classList.remove("hidden");$("logoutBtn").classList.remove("hidden");
-  $("welcomeText").textContent="Técnico: "+currentTechnician.name;
-  $("techPin").value="";
-  await renderRecords();
+function compressImage(file){return new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>{const img=new Image();img.onload=()=>{const scale=Math.min(1,1200/Math.max(img.width,img.height));const c=document.createElement("canvas");c.width=Math.round(img.width*scale);c.height=Math.round(img.height*scale);c.getContext("2d").drawImage(img,0,0,c.width,c.height);resolve(c.toDataURL("image/jpeg",.72));};img.onerror=reject;img.src=reader.result;};reader.onerror=reject;reader.readAsDataURL(file);});}
+function collectItems(){
+ const out=[];EQUIPMENT.forEach((e,i)=>{if(!$(`[data-check="${i}"]`).checked)return;const n=Math.max(1,+$(`[data-qty="${i}"]`).value||1);for(let u=0;u<n;u++){let serial="",photo="";if(e.serial){const card=$(`units-${i}`).querySelectorAll(".unit-card")[u];serial=card.querySelector(".serial").value.trim();photo=card.querySelector(".photo-data").value;if(!serial||!photo)throw new Error(`Preencha o número de série e anexe a foto de ${e.name}, unidade ${u+1}.`);}out.push({equipment:e.name,serial,photo});}});return out;
 }
-function logout(){currentTechnician=null;$("appView").classList.add("hidden");$("loginView").classList.remove("hidden");$("logoutBtn").classList.add("hidden");}
-async function saveCollection(e){
-  e.preventDefault();
-  if(!currentTechnician)return;
-  const customer=$("customer").value.trim(),protocol=$("protocol").value.trim(),equipment=$("equipment").value.trim();
-  if(!customer||!protocol||!equipment){toast("Preencha os campos obrigatórios.");return;}
-  const now=new Date().toISOString();
-  const record={id:uuid(),customer,protocol,equipment,notes:$("notes").value.trim(),technician:currentTechnician.name,createdAt:Date.now(),deviceDate:now,status:"pending",version:1};
-  await putItem("records",record);
-  $("collectionForm").reset();
-  await renderRecords();
-  openReceipt(record);
-  toast("Coleta salva neste aparelho.");
-}
-async function renderRecords(){
-  const records=await getAllRecords();$("recordCount").textContent=records.length;
-  if(!records.length){$("recordsList").innerHTML='<p class="muted">Nenhuma coleta registrada.</p>';return;}
-  $("recordsList").innerHTML=records.map(r=>`<div class="record"><div><strong>${escapeHTML(r.customer)} · ${escapeHTML(r.protocol)}</strong><small>${escapeHTML(r.id)} · ${fmtDate(r.deviceDate)} · Pendente de sincronização</small></div><button data-id="${escapeHTML(r.id)}">Abrir</button></div>`).join("");
-  $("recordsList").querySelectorAll("button").forEach(b=>b.addEventListener("click",async()=>{const r=await getItem("records",b.dataset.id);if(r)openReceipt(r);}));
-}
-function openReceipt(r){
-  activeRecord=r;$("receiptId").textContent=r.id;
-  const fields=[["Cliente",r.customer],["Protocolo / ordem",r.protocol],["Data e hora do aparelho",fmtDate(r.deviceDate)],["Técnico",r.technician],["Equipamentos recolhidos",r.equipment],["Observações",r.notes||"Não informado"]];
-  $("receiptFields").innerHTML=fields.map(([k,v])=>`<div class="field-row"><b>${k}</b><div class="value">${escapeHTML(v)}</div></div>`).join("");
-  $("qrcode").innerHTML="";
-  const payload=JSON.stringify({id:r.id,protocol:r.protocol,createdAt:r.deviceDate,version:1});
-  if(window.QRCode){new QRCode($("qrcode"),{text:payload,width:180,height:180,colorDark:"#111111",colorLight:"#ffffff",correctLevel:QRCode.CorrectLevel.M});}
-  else $("qrcode").textContent="Biblioteca de QR Code indisponível. Conecte-se à internet e recarregue o aplicativo.";
-  $("receiptModal").classList.remove("hidden");
-}
-function closeReceipt(){$("receiptModal").classList.add("hidden");}
-async function shareReceipt(){
-  if(!activeRecord)return;
-  const text=`Comprovante ${activeRecord.id}\nCliente: ${activeRecord.customer}\nProtocolo: ${activeRecord.protocol}\nData: ${fmtDate(activeRecord.deviceDate)}\nEquipamentos: ${activeRecord.equipment}`;
-  if(navigator.share){try{await navigator.share({title:"Comprovante de coleta",text});}catch(e){}}
-  else if(navigator.clipboard){await navigator.clipboard.writeText(text);toast("Resumo copiado. Use imprimir/salvar em PDF para compartilhar o documento.");}
-  else toast("Use Imprimir / salvar em PDF para entregar o comprovante.");
-}
-async function exportBackup(){
-  const records=await getAllRecords();const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),records},null,2)],{type:"application/json"});
-  const url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download="backup-coletas-"+new Date().toISOString().slice(0,10)+".json";a.click();URL.revokeObjectURL(url);
-}
-init().catch(err=>{console.error(err);toast("Não foi possível iniciar o banco local.");});
+$("collectionForm").onsubmit=e=>{e.preventDefault();if(!profile){openProfile();alert("Configure a empresa e o técnico antes de gerar o comprovante.");return;}let items;try{items=collectItems();}catch(err){alert(err.message);return;}if(!items.length){alert("Selecione pelo menos um equipamento.");return;}
+ const record={id:"COL-"+crypto.randomUUID(),date:new Date().toLocaleString("pt-BR"),customer:$("customer").value.trim(),base:$("base").value.trim(),contract:$("contract").value.trim(),...profile,items,notes:$("notes").value.trim()};
+ records.unshift(record);try{localStorage.setItem("cc_records",JSON.stringify(records));}catch(err){records.shift();alert("O armazenamento deste aparelho está cheio. Reduza o tamanho das fotos ou exporte os registros.");return;}showReceipt(record);renderHistory();};
+function showReceipt(r){currentReceipt=r;$("receipt").innerHTML=`
+<h1>Comprovante de coleta de equipamentos</h1><div class="receipt-meta">Identificador: ${escapeHtml(r.id)} · Data e hora: ${escapeHtml(r.date)}</div>
+<h2>Dados do cliente</h2><div class="receipt-grid">${field("Nome do cliente",r.customer)}${field("Base",r.base)}${field("Contrato",r.contract)}</div>
+<h2>Identificação da coleta</h2><div class="receipt-grid">${field("Empresa",r.company)}${field("Técnico",r.technician)}${field("Login",r.login)}</div>
+<h2>Equipamentos coletados</h2><table><thead><tr><th>Equipamento</th><th>Número de série</th></tr></thead><tbody>${r.items.map(x=>`<tr><td>${escapeHtml(x.equipment)}</td><td>${escapeHtml(x.serial||"—")}</td></tr>`).join("")}</tbody></table>
+${r.notes?`<h2>Observações</h2><p>${escapeHtml(r.notes)}</p>`:""}
+<h2>Registro fotográfico dos equipamentos</h2>${r.items.filter(x=>x.photo).map(x=>`<div class="photo-record"><div><strong>${escapeHtml(x.equipment)}</strong><p>Número de série: ${escapeHtml(x.serial)}</p></div><img src="${x.photo}" alt="Etiqueta ${escapeHtml(x.equipment)} ${escapeHtml(x.serial)}"></div>`).join("")||"<p>Não há fotos anexadas.</p>"}
+<p class="footer-note">Este documento registra os equipamentos informados como fisicamente coletados. Guarde este comprovante para consulta.</p>`;
+$("receiptView").hidden=false;document.querySelector("main").hidden=true;window.scrollTo(0,0);}
+function field(label,value){return `<div class="receipt-field"><b>${label}</b>${escapeHtml(value)}</div>`;}
+$("backToApp").onclick=()=>{$("receiptView").hidden=true;document.querySelector("main").hidden=false;window.scrollTo(0,0);};
+$("printReceipt").onclick=()=>window.print();
+function renderHistory(){$("history").innerHTML=records.length?records.map(r=>`<div class="history-item"><div><strong>${escapeHtml(r.customer)} — ${escapeHtml(r.contract)}</strong><small>${escapeHtml(r.date)} · ${r.items.length} unidade(s) · ${escapeHtml(r.id)}</small></div><button class="secondary small" data-open="${r.id}">Abrir</button></div>`).join(""):'<p class="muted">Nenhuma coleta salva ainda.</p>';$("history").querySelectorAll("[data-open]").forEach(b=>b.onclick=()=>showReceipt(records.find(r=>r.id===b.dataset.open)));}
+$("exportBtn").onclick=()=>{const cols=["Data e hora","Nome do cliente","Base","Contrato","Empresa","Nome do técnico","Login do técnico","ID do comprovante","Equipamento","Quantidade","Número de série","Observações"];const lines=[cols,...records.flatMap(r=>r.items.map(it=>[r.date,r.customer,r.base,r.contract,r.company,r.technician,r.login,r.id,it.equipment,1,it.serial,r.notes]))];const csv="\uFEFF"+lines.map(row=>row.map(v=>`"${String(v??"").replace(/"/g,'""')}"`).join(";")).join("\r\n");const blob=new Blob([csv],{type:"text/csv;charset=utf-8"});const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="coletas.csv";a.click();URL.revokeObjectURL(a.href);};
+renderProfile();renderEquipment();renderHistory();
+if("serviceWorker" in navigator && location.protocol.startsWith("http"))navigator.serviceWorker.register("./sw.js").catch(()=>{});

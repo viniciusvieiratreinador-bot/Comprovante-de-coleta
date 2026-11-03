@@ -1,0 +1,9 @@
+{
+  "name": "Comprovante de Coleta",
+  "short_name": "Coleta",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f4f5f7",
+  "theme_color": "#e30613",
+  "description": "Protótipo offline para registro de coleta de equipamentos."
+}

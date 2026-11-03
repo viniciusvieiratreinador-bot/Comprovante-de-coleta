@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#e30613">
+  <meta name="description" content="Protótipo offline para registro de coleta de equipamentos.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="styles.css">
+  <title>Comprovante de Coleta</title>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-mark">C</div>
+    <div><strong>COMPROVANTE DE COLETA</strong><small>Protótipo operacional</small></div>
+    <button id="logoutBtn" class="link-btn hidden" type="button">Sair</button>
+  </header>
+
+  <main>
+    <section id="loginView" class="panel login-panel">
+      <div class="eyebrow">ACESSO DO TÉCNICO</div>
+      <h1>Identifique-se</h1>
+      <p class="muted">No primeiro acesso, cadastre o nome e crie um PIN local. Este acesso é demonstrativo e ainda não valida a identidade em um servidor.</p>
+      <form id="loginForm">
+        <label for="techName">Nome do técnico</label>
+        <input id="techName" autocomplete="name" placeholder="Ex.: João da Silva" required>
+        <label for="techPin">PIN de 4 a 8 dígitos</label>
+        <input id="techPin" inputmode="numeric" pattern="[0-9]{4,8}" minlength="4" maxlength="8" placeholder="Digite seu PIN" required>
+        <button class="primary" type="submit">Entrar / cadastrar neste aparelho</button>
+      </form>
+      <p id="loginError" class="error" role="alert"></p>
+    </section>
+
+    <section id="appView" class="hidden">
+      <div class="welcome-row">
+        <div><div class="eyebrow">ÁREA DO TÉCNICO</div><h1>Nova coleta</h1><p id="welcomeText" class="muted"></p></div>
+        <span class="offline-pill"><i></i> Modo offline</span>
+      </div>
+
+      <section class="panel">
+        <form id="collectionForm">
+          <label for="customer">Nome do cliente *</label>
+          <input id="customer" maxlength="100" autocomplete="off" placeholder="Nome completo" required>
+
+          <label for="protocol">Protocolo / ordem de retirada *</label>
+          <input id="protocol" maxlength="60" autocomplete="off" placeholder="Número do protocolo" required>
+
+          <label for="equipment">Equipamentos recolhidos *</label>
+          <textarea id="equipment" rows="4" maxlength="1000" placeholder="Descreva livremente. Ex.: 1 modem Arris, 1 roteador, 2 fontes..." required></textarea>
+          <p class="hint">Informe quantidade, tipo e, se disponível, número de série ou MAC.</p>
+
+          <label for="notes">Observações (opcional)</label>
+          <textarea id="notes" rows="2" maxlength="500" placeholder="Condição do equipamento ou observações relevantes"></textarea>
+
+          <div class="notice"><strong>Sem assinatura:</strong> este comprovante registra a declaração de coleta feita pelo técnico. Não confirma a baixa no sistema oficial.</div>
+          <button class="primary" type="submit">Registrar coleta e gerar comprovante</button>
+        </form>
+      </section>
+
+      <section class="panel history-panel">
+        <div class="section-head"><div><div class="eyebrow">ARMAZENAMENTO LOCAL</div><h2>Minhas coletas</h2></div><span id="recordCount" class="count">0</span></div>
+        <p class="muted small">Os registros ficam neste aparelho. A sincronização com um servidor ainda não está implementada nesta versão.</p>
+        <div id="recordsList" class="records-list"><p class="muted">Nenhuma coleta registrada.</p></div>
+        <button id="exportBtn" class="secondary" type="button">Exportar backup dos registros (JSON)</button>
+      </section>
+    </section>
+  </main>
+
+  <div id="receiptModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="receiptTitle">
+    <div class="modal-card">
+      <div class="modal-head"><div><div class="eyebrow">DOCUMENTO GERADO NO APARELHO</div><h2 id="receiptTitle">Comprovante de coleta</h2></div><button id="closeModal" class="close-btn" aria-label="Fechar">×</button></div>
+      <div id="receiptContent" class="receipt">
+        <div class="receipt-brand"><span class="receipt-logo">C</span><div><strong>COMPROVANTE DE COLETA</strong><small>Registro de retirada de equipamentos</small></div></div>
+        <div class="receipt-status">REGISTRO LOCAL — AGUARDANDO SINCRONIZAÇÃO</div>
+        <h3 id="receiptId"></h3>
+        <div id="receiptFields"></div>
+        <div class="qr-wrap"><div id="qrcode"></div><small>Leia o código para consultar o identificador deste comprovante. A validação online será disponibilizada após integração com servidor.</small></div>
+        <p class="receipt-foot">Documento gerado eletronicamente pelo protótipo. Não representa baixa no sistema oficial da operadora.</p>
+      </div>
+      <div class="modal-actions">
+        <button id="printBtn" class="primary" type="button">Imprimir / salvar em PDF</button>
+        <button id="shareBtn" class="secondary" type="button">Compartilhar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status"></div>
+  <script src="qrcode.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
